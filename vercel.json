@@ -1,6 +1,6 @@
 {
   "rewrites": [
     { "source": "/hand", "destination": "/hand.html" },
-    { "source": "/hand/", "destination": "/hand.html" }
+    { "source": "/avatar", "destination": "/avatar.html" }
   ]
 }

@@ -7,6 +7,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         hand: resolve(__dirname, "hand.html"),
+        avatar: resolve(__dirname, "avatar.html"),
       },
     },
   },
