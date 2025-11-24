@@ -7,9 +7,13 @@ const lerp = Kalidokit.Vector.lerp;
 let currentVrm;
 
 // renderer
-const renderer = new THREE.WebGLRenderer({ alpha: true });
+const renderer = new THREE.WebGLRenderer({ alpha: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
+renderer.domElement.style.position = "absolute";
+renderer.domElement.style.top = "0";
+renderer.domElement.style.left = "0";
+renderer.domElement.style.zIndex = "10";
 document.body.appendChild(renderer.domElement);
 
 // camera
@@ -30,6 +34,17 @@ orbitControls.update();
 // scene
 const scene = new THREE.Scene();
 
+// Add video texture as background
+let videoElement = document.querySelector(".input_video");
+const videoTexture = new THREE.VideoTexture(videoElement);
+videoTexture.minFilter = THREE.LinearFilter;
+videoTexture.magFilter = THREE.LinearFilter;
+const videoMaterial = new THREE.MeshBasicMaterial({ map: videoTexture });
+const videoGeometry = new THREE.PlaneGeometry(16, 9);
+const videoMesh = new THREE.Mesh(videoGeometry, videoMaterial);
+videoMesh.position.z = -5;
+scene.add(videoMesh);
+
 // light
 const light = new THREE.DirectionalLight(0xffffff);
 light.position.set(1.0, 1.0, 1.0).normalize();
@@ -45,6 +60,12 @@ function animate() {
     // Update model to render physics
     currentVrm.update(clock.getDelta());
   }
+
+  // Update video texture
+  if (videoTexture) {
+    videoTexture.needsUpdate = true;
+  }
+
   renderer.render(scene, orbitCamera);
 }
 animate();
@@ -319,13 +340,10 @@ const animateVRM = (vrm, results) => {
 };
 
 /* SETUP MEDIAPIPE HOLISTIC INSTANCE */
-let videoElement = document.querySelector(".input_video"),
-  guideCanvas = document.querySelector("canvas.guides");
+// videoElement already declared above for texture
 
 const onResults = (results) => {
-  // Draw landmark guides
-  drawResults(results);
-  // Animate model
+  // Animate model only
   animateVRM(currentVrm, results);
 };
 
@@ -344,54 +362,6 @@ holistic.setOptions({
 });
 // Pass holistic a callback function
 holistic.onResults(onResults);
-
-const drawResults = (results) => {
-  guideCanvas.width = videoElement.videoWidth;
-  guideCanvas.height = videoElement.videoHeight;
-  let canvasCtx = guideCanvas.getContext("2d");
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, guideCanvas.width, guideCanvas.height);
-  // Use `Mediapipe` drawing functions
-  drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {
-    color: "#00cff7",
-    lineWidth: 4,
-  });
-  drawLandmarks(canvasCtx, results.poseLandmarks, {
-    color: "#ff0364",
-    lineWidth: 2,
-  });
-  drawConnectors(canvasCtx, results.faceLandmarks, FACEMESH_TESSELATION, {
-    color: "#C0C0C070",
-    lineWidth: 1,
-  });
-  if (results.faceLandmarks && results.faceLandmarks.length === 478) {
-    //draw pupils
-    drawLandmarks(
-      canvasCtx,
-      [results.faceLandmarks[468], results.faceLandmarks[468 + 5]],
-      {
-        color: "#ffe603",
-        lineWidth: 2,
-      }
-    );
-  }
-  drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {
-    color: "#eb1064",
-    lineWidth: 5,
-  });
-  drawLandmarks(canvasCtx, results.leftHandLandmarks, {
-    color: "#00cff7",
-    lineWidth: 2,
-  });
-  drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {
-    color: "#22c3e3",
-    lineWidth: 5,
-  });
-  drawLandmarks(canvasCtx, results.rightHandLandmarks, {
-    color: "#ff0364",
-    lineWidth: 2,
-  });
-};
 
 // Use `Mediapipe` utils to get camera - lower resolution = higher fps
 const camera = new Camera(videoElement, {
