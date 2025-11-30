@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MediaPipe Mapping Fix</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1635989137/holistic.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+
+      .container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      video {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1);
+      }
+
+      canvas {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        transform: scaleX(-1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <video class="input_video" autoplay muted playsinline></video>
+      <canvas class="guides"></canvas>
+    </div>
+
+    <script>
+      const video = document.querySelector(".input_video");
+      const canvas = document.querySelector(".guides");
+      const ctx = canvas.getContext("2d");
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      /* -------------------------------------------------------
+   ฟังก์ชันสำคัญ: แปลง Mediapipe x,y (0–1) → Pixel บนจอจริง
+-------------------------------------------------------- */
+      function mapPoint(
+        x,
+        y,
+        videoWidth,
+        videoHeight,
+        canvasWidth,
+        canvasHeight
+      ) {
+        const videoRatio = videoWidth / videoHeight;
+        const canvasRatio = canvasWidth / canvasHeight;
+
+        let drawWidth, drawHeight;
+
+        // COVER SCALE
+        if (canvasRatio > videoRatio) {
+          drawWidth = canvasWidth;
+          drawHeight = canvasWidth / videoRatio;
+        } else {
+          drawHeight = canvasHeight;
+          drawWidth = canvasHeight * videoRatio;
+        }
+
+        const scale = drawWidth / videoWidth;
+
+        const offsetX = (canvasWidth - drawWidth) / 2;
+        const offsetY = (canvasHeight - drawHeight) / 2;
+
+        // Map real pixel on scaled video
+        const px = x * videoWidth * scale + offsetX;
+        const py = y * videoHeight * scale + offsetY;
+
+        return { x: px, y: py };
+      }
+
+      /* -------------------------------------------------------
+   วาด landmark ด้วย mapping ใหม่
+-------------------------------------------------------- */
+      function drawMappedLandmarks(landmarks, color = "red", size = 3) {
+        ctx.fillStyle = color;
+        for (let lm of landmarks) {
+          const p = mapPoint(
+            lm.x,
+            lm.y,
+            video.videoWidth,
+            video.videoHeight,
+            canvas.width,
+            canvas.height
+          );
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+          ctx.fill();
+        }
+      }
+
+      function drawMappedLines(ptsA, ptsB, color = "cyan", width = 2) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+
+        for (let [a, b] of ptsB) {
+          const A = mapPoint(
+            ptsA[a].x,
+            ptsA[a].y,
+            video.videoWidth,
+            video.videoHeight,
+            canvas.width,
+            canvas.height
+          );
+          const B = mapPoint(
+            ptsA[b].x,
+            ptsA[b].y,
+            video.videoWidth,
+            video.videoHeight,
+            canvas.width,
+            canvas.height
+          );
+
+          ctx.beginPath();
+          ctx.moveTo(A.x, A.y);
+          ctx.lineTo(B.x, B.y);
+          ctx.stroke();
+        }
+      }
+
+      /* -------------------------------------------------------
+   Mediapipe Setup
+-------------------------------------------------------- */
+      const holistic = new Holistic({
+        locateFile: (f) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1635989137/${f}`,
+      });
+
+      holistic.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7,
+      });
+
+      holistic.onResults((results) => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!video.videoWidth) return;
+
+        // FaceMesh removed per request
+
+        // Pose
+        if (results.poseLandmarks) {
+          drawMappedLines(results.poseLandmarks, POSE_CONNECTIONS, "cyan", 4);
+          drawMappedLandmarks(results.poseLandmarks, "magenta", 3);
+        }
+
+        // Hands
+        if (results.leftHandLandmarks) {
+          drawMappedLines(
+            results.leftHandLandmarks,
+            HAND_CONNECTIONS,
+            "yellow",
+            4
+          );
+          drawMappedLandmarks(results.leftHandLandmarks, "red", 3);
+        }
+        if (results.rightHandLandmarks) {
+          drawMappedLines(
+            results.rightHandLandmarks,
+            HAND_CONNECTIONS,
+            "lime",
+            4
+          );
+          drawMappedLandmarks(results.rightHandLandmarks, "aqua", 3);
+        }
+      });
+
+      // Camera
+      const camera = new Camera(video, {
+        onFrame: async () => {
+          await holistic.send({ image: video });
+        },
+        width: 1920,
+        height: 1080,
+      });
+      camera.start();
+    </script>
+  </body>
+</html>
