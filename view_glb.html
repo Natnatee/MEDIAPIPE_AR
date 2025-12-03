@@ -57,7 +57,7 @@
             if (object.isBone) {
               bonesData.push({
                 name: object.name,
-                parent: object.parent ? object.parent.name : "root"
+                parent: object.parent ? object.parent.name : "root",
               });
 
               const boneHelper = new THREE.AxesHelper(0.1);
@@ -70,7 +70,7 @@
           console.log(`จำนวน: ${bonesData.length} bones`);
           console.log("\nรายชื่อ (ก็อปได้เลย):");
           console.log(JSON.stringify(bonesData, null, 2));
-          
+
           // แสดงแบบ text ธรรมดา
           console.log("\n=== รายชื่อแบบ text ===");
           bonesData.forEach((bone, i) => {

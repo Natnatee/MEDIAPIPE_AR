@@ -2,98 +2,429 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <!-- HTML Meta Tags -->
-    <title>KalidoKit - Face and Body Rig Solver</title>
-    <meta
-      name="description"
-      content="Track face and body rigs just your browser webcam!"
-    />
-
-    <!-- Twitter Meta Tags -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta property="twitter:domain" content="kit.kalidoface.com" />
-    <meta property="twitter:url" content="https://kit.kalidoface.com/" />
-    <meta name="twitter:title" content="KalidoKit - Face and Body Rig Solver" />
-    <meta
-      name="twitter:description"
-      content="Track face and body rigs just your browser webcam!"
-    />
-    <meta
-      name="twitter:image"
-      content="https://cdn.glitch.com/239c5934-4d83-4c5c-bef6-44dcdb04c8fb%2Fkalidoface-meta.jpg?v=1630110302224"
-    />
+    <title>Avatar Pose</title>
     <meta
       name="viewport"
       content="viewport-fit=cover, user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1"
     />
-    <link
-      rel="shortcut icon"
-      href="https://yeemachine.github.io/kalidoface-live2d-models/Icons/icon-circle.svg"
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
     />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+      }
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        position: fixed;
+        top: 0;
+        left: 0;
+      }
+    </style>
 
-    <!--     Basic Three.js -->
+    <!-- Basic Three.js -->
     <script src="https://unpkg.com/three@0.133.0/build/three.js"></script>
-    <!--     GLTF Loader for Three.js -->
+    <!-- GLTF Loader for Three.js -->
     <script src="https://unpkg.com/three@0.133.0/examples/js/loaders/GLTFLoader.js"></script>
-    <!--     Orbit Controls for Three.js -->
-    <script src="https://unpkg.com/three@0.133.0/examples/js/controls/OrbitControls.js"></script>
-    <!--     VRM Loader for Three.js -->
+    <!-- VRM Loader for Three.js -->
     <script src="https://unpkg.com/@pixiv/three-vrm@0.6.7/lib/three-vrm.js"></script>
-    <!--     Mediapipe or Tensorflow.js -->
+    <!-- Mediapipe Holistic -->
     <script
       src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1635989137/holistic.js"
       crossorigin="anonymous"
     ></script>
-
-    <!--     Mediapipe Drawing Tools -->
+    <!-- Mediapipe Drawing Tools -->
     <script
       src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
       crossorigin="anonymous"
     ></script>
-    <!--     Mediapipe Camera Tools -->
+    <!-- Mediapipe Camera Tools -->
     <script
       src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
       crossorigin="anonymous"
     ></script>
-    <!--     Kalidokit Kinematic Solver -->
+    <!-- Kalidokit Kinematic Solver -->
     <script src="https://cdn.jsdelivr.net/npm/kalidokit@1.1/dist/kalidokit.umd.js"></script>
-    <link rel="stylesheet" href="/src/avatar/style.css" />
   </head>
   <body>
-    <div class="preview">
-      <video class="input_video" width="1280px" height="720px"  autoplay muted playsinline></video>
-      <canvas class="guides"></canvas>
-      <section>
-        <a href="https://kalidokit-live2d.glitch.me"><p>Live2D</p></a>
-        <a class="current" href="https://glitch.com/edit/#!/kalidokit"
-          ><p>VRM</p></a
-        >
-      </section>
-    </div>
-    <h1 class="notranslate">
-      <a href="https://3d.kalidoface.com">kalidoface</a>
-    </h1>
-    <nav>
-      <a href="https://www.npmjs.com/package/kalidokit">
-        <img
-          src="https://cdn.glitch.me/447b6603-7eae-4da6-957d-73ee30c8e731%2Fnpm.png?v=1635133318451"
-        />
-      </a>
-      <a href="https://github.com/yeemachine/kalidokit">
-        <img
-          src="https://cdn.glitch.me/447b6603-7eae-4da6-957d-73ee30c8e731%2Fgithub.png?v=1635133310517"
-        />
-      </a>
-      <a href="https://twitter.com/yeemachine">
-        <img
-          src="https://cdn.glitch.me/447b6603-7eae-4da6-957d-73ee30c8e731%2Ftwitter.png?v=1635133322561"
-        />
-      </a>
-    </nav>
-    <p class="linkOut">
-      Visit
-      <a id="full" href="https://kalidoface.com">the full Vtuber App</a>!
-    </p>
-    <script src="/src/avatar/script.js"></script>
+    <video
+      class="input_video"
+      autoplay
+      muted
+      playsinline
+      style="display: none"
+    ></video>
+
+    <script>
+      //Import Helper Functions from Kalidokit
+      const remap = Kalidokit.Utils.remap;
+      const clamp = Kalidokit.Utils.clamp;
+      const lerp = Kalidokit.Vector.lerp;
+
+      /* THREEJS WORLD SETUP */
+      let currentVrm;
+
+      // renderer
+      const renderer = new THREE.WebGLRenderer({ alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      document.body.appendChild(renderer.domElement);
+
+      // camera
+      const orbitCamera = new THREE.PerspectiveCamera(
+        35,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      orbitCamera.position.set(0.0, 1.0, 3.5);
+      orbitCamera.lookAt(0.0, 1.0, 0.0);
+
+      // scene
+      const scene = new THREE.Scene();
+
+      // light
+      const light = new THREE.DirectionalLight(0xffffff);
+      light.position.set(1.0, 1.0, 1.0).normalize();
+      scene.add(light);
+
+      // Main Render Loop
+      const clock = new THREE.Clock();
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        if (currentVrm) {
+          currentVrm.update(clock.getDelta());
+        }
+        renderer.render(scene, orbitCamera);
+      }
+      animate();
+
+      /* VRM CHARACTER SETUP */
+      const loader = new THREE.GLTFLoader();
+      loader.crossOrigin = "anonymous";
+      loader.load(
+        "./public/avatar/goku.vrm",
+
+        (gltf) => {
+          THREE.VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+          THREE.VRM.from(gltf).then((vrm) => {
+            scene.add(vrm.scene);
+            currentVrm = vrm;
+            currentVrm.scene.rotation.y = Math.PI;
+          });
+        },
+
+        (progress) =>
+          console.log(
+            "Loading model...",
+            100.0 * (progress.loaded / progress.total),
+            "%"
+          ),
+        (error) => console.error(error)
+      );
+
+      // Animate Rotation Helper function
+      const rigRotation = (
+        name,
+        rotation = { x: 0, y: 0, z: 0 },
+        dampener = 1,
+        lerpAmount = 0.3
+      ) => {
+        if (!currentVrm) {
+          return;
+        }
+        const Part = currentVrm.humanoid.getBoneNode(
+          THREE.VRMSchema.HumanoidBoneName[name]
+        );
+        if (!Part) {
+          return;
+        }
+
+        let euler = new THREE.Euler(
+          rotation.x * dampener,
+          rotation.y * dampener,
+          rotation.z * dampener
+        );
+        let quaternion = new THREE.Quaternion().setFromEuler(euler);
+        Part.quaternion.slerp(quaternion, lerpAmount);
+      };
+
+      // Animate Position Helper Function
+      const rigPosition = (
+        name,
+        position = { x: 0, y: 0, z: 0 },
+        dampener = 1,
+        lerpAmount = 0.3
+      ) => {
+        if (!currentVrm) {
+          return;
+        }
+        const Part = currentVrm.humanoid.getBoneNode(
+          THREE.VRMSchema.HumanoidBoneName[name]
+        );
+        if (!Part) {
+          return;
+        }
+        let vector = new THREE.Vector3(
+          position.x * dampener,
+          position.y * dampener,
+          position.z * dampener
+        );
+        Part.position.lerp(vector, lerpAmount);
+      };
+
+      let oldLookTarget = new THREE.Euler();
+      const rigFace = (riggedFace) => {
+        if (!currentVrm) {
+          return;
+        }
+        rigRotation("Neck", riggedFace.head, 0.7);
+
+        const Blendshape = currentVrm.blendShapeProxy;
+        const PresetName = THREE.VRMSchema.BlendShapePresetName;
+
+        riggedFace.eye.l = lerp(
+          clamp(1 - riggedFace.eye.l, 0, 1),
+          Blendshape.getValue(PresetName.Blink),
+          0.5
+        );
+        riggedFace.eye.r = lerp(
+          clamp(1 - riggedFace.eye.r, 0, 1),
+          Blendshape.getValue(PresetName.Blink),
+          0.5
+        );
+        riggedFace.eye = Kalidokit.Face.stabilizeBlink(
+          riggedFace.eye,
+          riggedFace.head.y
+        );
+        Blendshape.setValue(PresetName.Blink, riggedFace.eye.l);
+
+        Blendshape.setValue(
+          PresetName.I,
+          lerp(riggedFace.mouth.shape.I, Blendshape.getValue(PresetName.I), 0.5)
+        );
+        Blendshape.setValue(
+          PresetName.A,
+          lerp(riggedFace.mouth.shape.A, Blendshape.getValue(PresetName.A), 0.5)
+        );
+        Blendshape.setValue(
+          PresetName.E,
+          lerp(riggedFace.mouth.shape.E, Blendshape.getValue(PresetName.E), 0.5)
+        );
+        Blendshape.setValue(
+          PresetName.O,
+          lerp(riggedFace.mouth.shape.O, Blendshape.getValue(PresetName.O), 0.5)
+        );
+        Blendshape.setValue(
+          PresetName.U,
+          lerp(riggedFace.mouth.shape.U, Blendshape.getValue(PresetName.U), 0.5)
+        );
+
+        let lookTarget = new THREE.Euler(
+          lerp(oldLookTarget.x, riggedFace.pupil.y, 0.4),
+          lerp(oldLookTarget.y, riggedFace.pupil.x, 0.4),
+          0,
+          "XYZ"
+        );
+        oldLookTarget.copy(lookTarget);
+        currentVrm.lookAt.applyer.lookAt(lookTarget);
+      };
+
+      /* VRM Character Animator */
+      const animateVRM = (vrm, results) => {
+        if (!vrm) {
+          return;
+        }
+
+        let riggedPose, riggedLeftHand, riggedRightHand, riggedFace;
+
+        const faceLandmarks = results.faceLandmarks;
+        const pose3DLandmarks = results.ea;
+        const pose2DLandmarks = results.poseLandmarks;
+        const leftHandLandmarks = results.rightHandLandmarks;
+        const rightHandLandmarks = results.leftHandLandmarks;
+
+        // Animate Face
+        if (faceLandmarks) {
+          riggedFace = Kalidokit.Face.solve(faceLandmarks, {
+            runtime: "mediapipe",
+            video: videoElement,
+          });
+          rigFace(riggedFace);
+        }
+
+        // Animate Pose
+        if (pose2DLandmarks && pose3DLandmarks) {
+          riggedPose = Kalidokit.Pose.solve(pose3DLandmarks, pose2DLandmarks, {
+            runtime: "mediapipe",
+            video: videoElement,
+          });
+          rigRotation("Hips", riggedPose.Hips.rotation, 0.7);
+          rigPosition(
+            "Hips",
+            {
+              x: -riggedPose.Hips.position.x,
+              y: riggedPose.Hips.position.y + 1,
+              z: -riggedPose.Hips.position.z,
+            },
+            1,
+            0.07
+          );
+
+          rigRotation("Chest", riggedPose.Spine, 0.25, 0.3);
+          rigRotation("Spine", riggedPose.Spine, 0.45, 0.3);
+
+          rigRotation("RightUpperArm", riggedPose.RightUpperArm, 1, 0.3);
+          rigRotation("RightLowerArm", riggedPose.RightLowerArm, 1, 0.3);
+          rigRotation("LeftUpperArm", riggedPose.LeftUpperArm, 1, 0.3);
+          rigRotation("LeftLowerArm", riggedPose.LeftLowerArm, 1, 0.3);
+
+          rigRotation("LeftUpperLeg", riggedPose.LeftUpperLeg, 1, 0.3);
+          rigRotation("LeftLowerLeg", riggedPose.LeftLowerLeg, 1, 0.3);
+          rigRotation("RightUpperLeg", riggedPose.RightUpperLeg, 1, 0.3);
+          rigRotation("RightLowerLeg", riggedPose.RightLowerLeg, 1, 0.3);
+        }
+
+        // Animate Hands
+        if (leftHandLandmarks) {
+          riggedLeftHand = Kalidokit.Hand.solve(leftHandLandmarks, "Left");
+          rigRotation("LeftHand", {
+            z: riggedPose.LeftHand.z,
+            y: riggedLeftHand.LeftWrist.y,
+            x: riggedLeftHand.LeftWrist.x,
+          });
+          rigRotation("LeftRingProximal", riggedLeftHand.LeftRingProximal);
+          rigRotation(
+            "LeftRingIntermediate",
+            riggedLeftHand.LeftRingIntermediate
+          );
+          rigRotation("LeftRingDistal", riggedLeftHand.LeftRingDistal);
+          rigRotation("LeftIndexProximal", riggedLeftHand.LeftIndexProximal);
+          rigRotation(
+            "LeftIndexIntermediate",
+            riggedLeftHand.LeftIndexIntermediate
+          );
+          rigRotation("LeftIndexDistal", riggedLeftHand.LeftIndexDistal);
+          rigRotation("LeftMiddleProximal", riggedLeftHand.LeftMiddleProximal);
+          rigRotation(
+            "LeftMiddleIntermediate",
+            riggedLeftHand.LeftMiddleIntermediate
+          );
+          rigRotation("LeftMiddleDistal", riggedLeftHand.LeftMiddleDistal);
+          rigRotation("LeftThumbProximal", riggedLeftHand.LeftThumbProximal);
+          rigRotation(
+            "LeftThumbIntermediate",
+            riggedLeftHand.LeftThumbIntermediate
+          );
+          rigRotation("LeftThumbDistal", riggedLeftHand.LeftThumbDistal);
+          rigRotation("LeftLittleProximal", riggedLeftHand.LeftLittleProximal);
+          rigRotation(
+            "LeftLittleIntermediate",
+            riggedLeftHand.LeftLittleIntermediate
+          );
+          rigRotation("LeftLittleDistal", riggedLeftHand.LeftLittleDistal);
+        }
+        if (rightHandLandmarks) {
+          riggedRightHand = Kalidokit.Hand.solve(rightHandLandmarks, "Right");
+          rigRotation("RightHand", {
+            z: riggedPose.RightHand.z,
+            y: riggedRightHand.RightWrist.y,
+            x: riggedRightHand.RightWrist.x,
+          });
+          rigRotation("RightRingProximal", riggedRightHand.RightRingProximal);
+          rigRotation(
+            "RightRingIntermediate",
+            riggedRightHand.RightRingIntermediate
+          );
+          rigRotation("RightRingDistal", riggedRightHand.RightRingDistal);
+          rigRotation("RightIndexProximal", riggedRightHand.RightIndexProximal);
+          rigRotation(
+            "RightIndexIntermediate",
+            riggedRightHand.RightIndexIntermediate
+          );
+          rigRotation("RightIndexDistal", riggedRightHand.RightIndexDistal);
+          rigRotation(
+            "RightMiddleProximal",
+            riggedRightHand.RightMiddleProximal
+          );
+          rigRotation(
+            "RightMiddleIntermediate",
+            riggedRightHand.RightMiddleIntermediate
+          );
+          rigRotation("RightMiddleDistal", riggedRightHand.RightMiddleDistal);
+          rigRotation("RightThumbProximal", riggedRightHand.RightThumbProximal);
+          rigRotation(
+            "RightThumbIntermediate",
+            riggedRightHand.RightThumbIntermediate
+          );
+          rigRotation("RightThumbDistal", riggedRightHand.RightThumbDistal);
+          rigRotation(
+            "RightLittleProximal",
+            riggedRightHand.RightLittleProximal
+          );
+          rigRotation(
+            "RightLittleIntermediate",
+            riggedRightHand.RightLittleIntermediate
+          );
+          rigRotation("RightLittleDistal", riggedRightHand.RightLittleDistal);
+        }
+      };
+
+      /* SETUP MEDIAPIPE HOLISTIC INSTANCE */
+      let videoElement = document.querySelector(".input_video");
+
+      const onResults = (results) => {
+        animateVRM(currentVrm, results);
+      };
+
+      const holistic = new Holistic({
+        locateFile: (file) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic@0.5.1635989137/${file}`;
+        },
+      });
+
+      holistic.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7,
+        refineFaceLandmarks: true,
+      });
+      holistic.onResults(onResults);
+
+      // Use Mediapipe utils to get camera
+      const camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await holistic.send({ image: videoElement });
+        },
+        width: 1080,
+        height: 1920,
+      });
+      camera.start();
+
+      // Handle window resize
+      window.addEventListener("resize", () => {
+        orbitCamera.aspect = window.innerWidth / window.innerHeight;
+        orbitCamera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
   </body>
 </html>

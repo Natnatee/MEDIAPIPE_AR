@@ -9,6 +9,10 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
+    <!-- Three.js for 3D model overlay -->
+    <script src="https://unpkg.com/three@0.133.0/build/three.js"></script>
+    <script src="https://unpkg.com/three@0.133.0/examples/js/loaders/GLTFLoader.js"></script>
+
     <style>
       body {
         margin: 0;
@@ -50,11 +54,41 @@
       const canvas = document.querySelector(".guides");
       const ctx = canvas.getContext("2d");
 
+      // Three overlay canvas
+      const threeCanvas = document.createElement("canvas");
+      threeCanvas.id = "three-canvas";
+      threeCanvas.style.position = "absolute";
+      threeCanvas.style.top = "0";
+      threeCanvas.style.left = "0";
+      threeCanvas.style.width = "100%";
+      threeCanvas.style.height = "100%";
+      threeCanvas.style.pointerEvents = "none";
+      threeCanvas.style.zIndex = "3";
+      document.querySelector(".container").appendChild(threeCanvas);
+
+      // Declare renderer and orthoCam first
+      let renderer,
+        scene3,
+        orthoCam,
+        modelPivot,
+        model,
+        baseModelWidth = 1;
+
       function resizeCanvas() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
+        threeCanvas.width = window.innerWidth;
+        threeCanvas.height = window.innerHeight;
+        if (renderer && orthoCam) {
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          orthoCam.left = 0;
+          orthoCam.right = window.innerWidth;
+          orthoCam.top = 0;
+          orthoCam.bottom = window.innerHeight;
+          orthoCam.updateProjectionMatrix();
+        }
       }
-      resizeCanvas();
+
       window.addEventListener("resize", resizeCanvas);
 
       /* -------------------------------------------------------
@@ -144,6 +178,87 @@
       }
 
       /* -------------------------------------------------------
+   Three.js overlay setup
+-------------------------------------------------------- */
+      try {
+        renderer = new THREE.WebGLRenderer({
+          canvas: threeCanvas,
+          alpha: true,
+          antialias: true,
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+
+        scene3 = new THREE.Scene();
+        orthoCam = new THREE.OrthographicCamera(
+          0,
+          window.innerWidth,
+          window.innerHeight,
+          0,
+          -1000,
+          1000
+        );
+        orthoCam.position.z = 10;
+
+        modelPivot = new THREE.Group();
+        scene3.add(modelPivot);
+
+        const threeLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        threeLight.position.set(0, 1, 1).normalize();
+        scene3.add(threeLight);
+        scene3.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+        // Now call resizeCanvas after renderer and orthoCam are initialized
+        resizeCanvas();
+
+        const gltfLoader = new THREE.GLTFLoader();
+        gltfLoader.load(
+          "./glb/Santa_cameraman.glb",
+          (gltf) => {
+            model = gltf.scene;
+
+            // รวบรวมข้อมูล bones ทั้งหมด
+            const bonesData = [];
+            model.traverse((object) => {
+              if (object.isBone) {
+                bonesData.push({
+                  name: object.name,
+                  parent: object.parent ? object.parent.name : "root",
+                });
+              }
+            });
+
+            // Log ข้อมูล bones ในรูปแบบ JSON
+            console.log("=== Santa Model Bones Data ===");
+            console.log(`Total Bones: ${bonesData.length}`);
+            console.log("\nJSON (copy-ready):");
+            console.log(JSON.stringify(bonesData, null, 2));
+
+            // center model and add to pivot
+            const box = new THREE.Box3().setFromObject(model);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            baseModelWidth = size.x > 0 ? size.x : 1;
+
+            // optionally reposition model so its center is at (0,0)
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            model.position.sub(center);
+
+            modelPivot.add(model);
+          },
+          undefined,
+          (e) => console.warn("GLTF load error", e)
+        );
+      } catch (e) {
+        console.warn("Three.js init failed", e);
+      }
+
+      function renderThreeOnce() {
+        if (renderer && scene3 && orthoCam) renderer.render(scene3, orthoCam);
+      }
+
+      /* -------------------------------------------------------
    Mediapipe Setup
 -------------------------------------------------------- */
       const holistic = new Holistic({
@@ -158,12 +273,65 @@
         minTrackingConfidence: 0.7,
       });
 
+      function distance(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        return Math.sqrt(dx * dx + dy * dy);
+      }
+
+      function updateModelFromPose(poseLandmarks) {
+        if (!poseLandmarks || !modelPivot || !model) return;
+        // MediaPipe pose indices: 11 = left_shoulder, 12 = right_shoulder
+        const L = poseLandmarks[11];
+        const R = poseLandmarks[12];
+        if (!L || !R) return;
+
+        const pL = mapPoint(
+          L.x,
+          L.y,
+          video.videoWidth,
+          video.videoHeight,
+          canvas.width,
+          canvas.height
+        );
+        const pR = mapPoint(
+          R.x,
+          R.y,
+          video.videoWidth,
+          video.videoHeight,
+          canvas.width,
+          canvas.height
+        );
+
+        const mid = { x: (pL.x + pR.x) / 2, y: (pL.y + pR.y) / 2 };
+        const shoulderPx = Math.hypot(pR.x - pL.x, pR.y - pL.y);
+
+        // place pivot at mid (pixel coordinates) — ปรับ offset แกน Y ที่นี่
+        const yOffset = -50; // เปลี่ยนเป็น -50 เพื่อขยับขึ้น หรือ +50 เพื่อขยับลง
+        modelPivot.position.set(mid.x, mid.y + yOffset, 0);
+
+        // scale model relative to baseModelWidth so shoulder width matches roughly
+        const scale =
+          baseModelWidth > 0 ? (shoulderPx / baseModelWidth) * 6.0 : 1.0;
+        modelPivot.scale.set(scale, scale, scale);
+
+        // rotation to match shoulder line
+        const angle = Math.atan2(pR.y - pL.y, pR.x - pL.x);
+        modelPivot.rotation.set(0, 0, -angle);
+      }
+
       holistic.onResults((results) => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (!video.videoWidth) return;
 
-        // FaceMesh removed per request
+        // Update model mapping first
+        if (results.poseLandmarks && model) {
+          updateModelFromPose(results.poseLandmarks);
+        }
+
+        // render three overlay
+        renderThreeOnce();
 
         // Pose
         if (results.poseLandmarks) {
